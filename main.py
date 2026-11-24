@@ -1,60 +1,57 @@
 #!/usr/bin/env python3
-"""THE GLOBAL DISPATCH — entry runner for news-image-20261123 (akun5).
+"""Entry runner — THE GLOBAL DISPATCH (akun5, news-image-20261123).
 
-The artwork itself (entry.png, drawn in this session by compose.py) is the
-entry. This runner is deliberately boring: standard library only, no image
-libraries, it verifies the PNG sitting next to it and copies it verbatim to
-the output directory the harness points at. Two runs give the same bytes.
+The front page is the program's whole payload: entry.png, a 1024x1024
+broadsheet of Monday 23 November 2026 drawn by compose.py in this repo.
+This file's single job is to hand that page to the harness untouched.
 
-Guards: PNG magic, the 1 MiB competition ceiling, and an exact byte count
-plus SHA-256 of the shipped artwork so a swapped or truncated file fails
-loudly instead of submitting the wrong front page.
+It leans on nothing outside the standard library and never decodes the
+image — it reads the bytes, checks them against the size and SHA-256 the
+page shipped with, and writes them to $MAKEFUN_OUTPUT_DIR/entry.png (or
+/output when the variable is unset). Same input, same output, every run.
 """
 
 import hashlib
 import os
 import sys
 
-EXPECTED_BYTES = 113630
-EXPECTED_SHA256 = "f18b81a10d06d0447e1fe1d3359629ececa4f8d3f27b16fe2d833c2a3406ac57"
-PNG_HEADER = b"\x89PNG\r\n\x1a\n"
-CEILING = 1048576  # 1 MiB hard gate for this competition
+PAGE_BYTES = 113630
+PAGE_SHA256 = "f18b81a10d06d0447e1fe1d3359629ececa4f8d3f27b16fe2d833c2a3406ac57"
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+HARD_LIMIT = 1048576
 
 
-def load_artwork(path):
-    # Read the whole artwork in one go; it is ~114 KB, far below the gate.
+def read_page(folder):
+    # The page is small (~114 KB); a single read keeps the copy byte-exact.
+    path = os.path.join(folder, "entry.png")
     with open(path, "rb") as fh:
         return fh.read()
 
 
-def check_artwork(blob):
-    if not blob:
-        raise SystemExit("entry.png is empty")
-    if blob[:8] != PNG_HEADER:
-        raise SystemExit("entry.png does not start with the PNG magic bytes")
-    if len(blob) > CEILING:
-        raise SystemExit("entry.png is over the 1 MiB gate: %d bytes" % len(blob))
-    if len(blob) != EXPECTED_BYTES:
-        raise SystemExit(
-            "entry.png size drifted: got %d, expected %d"
-            % (len(blob), EXPECTED_BYTES)
-        )
-    digest = hashlib.sha256(blob).hexdigest()
-    if digest != EXPECTED_SHA256:
-        raise SystemExit("entry.png sha256 drifted: %s" % digest)
-    return digest
+def verify_page(blob):
+    """Refuse to ship anything that is not exactly the drawn front page."""
+    if len(blob) == 0:
+        sys.exit("entry.png is empty — nothing to submit")
+    if not blob.startswith(PNG_SIGNATURE):
+        sys.exit("entry.png is not a PNG file")
+    if len(blob) > HARD_LIMIT:
+        sys.exit("entry.png breaks the 1 MiB gate: %d bytes" % len(blob))
+    if len(blob) != PAGE_BYTES:
+        sys.exit("entry.png has %d bytes, the page has %d" % (len(blob), PAGE_BYTES))
+    if hashlib.sha256(blob).hexdigest() != PAGE_SHA256:
+        sys.exit("entry.png hash mismatch — the page on disk is not the drawn page")
 
 
 def main():
-    here = os.path.dirname(os.path.abspath(__file__))
-    blob = load_artwork(os.path.join(here, "entry.png"))
-    digest = check_artwork(blob)
-    out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR") or "/output"
+    folder = os.path.dirname(os.path.abspath(__file__))
+    blob = read_page(folder)
+    verify_page(blob)
+    out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
     os.makedirs(out_dir, exist_ok=True)
-    target = os.path.join(out_dir, "entry.png")
-    with open(target, "wb") as fh:
+    dest = os.path.join(out_dir, "entry.png")
+    with open(dest, "wb") as fh:
         fh.write(blob)
-    sys.stderr.write("wrote %s (%d bytes, sha256=%s)\n" % (target, len(blob), digest))
+    sys.stderr.write("entry.png delivered: %d bytes -> %s\n" % (len(blob), dest))
 
 
 if __name__ == "__main__":
